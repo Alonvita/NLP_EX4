@@ -13,7 +13,6 @@ def read_lines(fname):
         yield sent_id, sent
 
 def main(train_file):
-    f1 = open('metouyag','w')
     sentences = []
     for sent_id, sent_str in read_lines(sys.argv[1]):
         sentence_info = ''
@@ -21,18 +20,19 @@ def main(train_file):
         #print("#id:",sent_id)
         #print("#text:",sent.text)
         for word in sent:
+            print word.ent_type_
             head_id = str(word.head.i+1)        # we want ids to be 1 based
             if word == word.head:               # and the ROOT to be 0.
                 assert(word.dep_=="ROOT"),word.dep_
                 head_id = "0" # root
             f1.write("\t".join([str(word.i+1), word.text, word.lemma_, word.tag_, word.pos_, head_id, word.dep_, word.ent_iob_, word.ent_type_])+'\n')
-            #print "\t".join([str(word.i+1), word.text, word.lemma_, word.tag_, word.pos_, head_id, word.dep_, word.ent_iob_, word.ent_type_])+'\n'
+            print "\t".join([str(word.i+1), word.text, word.lemma_, word.tag_, word.pos_, head_id, word.dep_, word.ent_iob_, word.ent_type_])+'\n'
         sentences.append([sent_id, sent])
         f1.write('\n')
     f1.close()
 
     return sentences
-    
+
 ##    print "#, Noun Chunks:"
 ##    for np in sent.noun_chunks:
 ##        print(np.text, np.root.text, np.root.dep_, np.root.head.text)
