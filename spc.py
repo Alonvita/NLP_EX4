@@ -14,7 +14,8 @@ def read_lines(fname):
 
 def main(train_file):
     sentences = []
-    for sent_id, sent_str in read_lines(sys.argv[1]):
+    f1 = open('kovets','w')
+    for sent_id, sent_str in read_lines(train_file):
         sentence_info = ''
         sent = nlp(sent_str)
         #print("#id:",sent_id)
@@ -33,6 +34,7 @@ def main(train_file):
 
     return sentences
 
+main(sys.argv[1])
 ##    print "#, Noun Chunks:"
 ##    for np in sent.noun_chunks:
 ##        print(np.text, np.root.text, np.root.dep_, np.root.head.text)

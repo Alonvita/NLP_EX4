@@ -4,191 +4,35 @@ import dynet as dy
 from collections import Counter
 import random
 import numpy as np
+import rule_based as rb
 import codecs 
 import util
 
-REPR_WORDS = '1'
-REPR_LSTM_OF_CHARS = '2'
-REPR_PREFIX_SUFFIX = '3'
-REPR_WORDS_N_LSTM_OF_CHARS = '4'
-REPR_PRETRAINED_WORDS = '5'
+def read_lines(fname, is_annotated):
+    print fname, "fname"
+    if is_annotated:
+        for line in codecs.open(fname, encoding="utf8"):
+            if line == '': continue
+            sent_id = line.split('\t')[0][4:]
+            annotation = line.split('(')[0].split('\t')[2]
+            sent = line.split("(")[1][:-1]
+            sent = sent.replace("-LRB-","(")
+            sent = sent.replace("-RRB-",")")
+            yield sent_id, annotation, sent
+    else:     
+        for line in codecs.open(fname, encoding="utf8"):
+            if line == '': continue
+            sent_id = line.split('\t')[0][4:]
 
-class embedding(object):
-    def __init__(self, model, vocabs, input_layer_size, option=3):
-        self.m = model
-        self.ils = input_layer_size
-        self.repr = option
-        self.vocabs = vocabs
-
-        if option == '1':
-            self.embeddings = self.m.add_lookup_parameters((self.vocabs.size(), self.ils))
-            self.dict = self.vocabs.w2i
-        if option == '2':
-            self.builder = dy.LSTMBuilder(1, 50, input_layer_size, self.m)
-            lstm = self.builder.initial_state()
-            chars = set([c for w in self.vocabs.words for c in w])
-            self.dict = { c:i for i,c in enumerate(chars) }
-            self.embeddings = self.m.add_lookup_parameters((len(chars),50))
-        if option == '3':
-            words = self.vocabs.words
-            longwords = [w for w in words if len(w) > 3]
-            prefixes = [w[:3] for w in longwords] 
-            suffixes = [w[-3:] for w in longwords]
-            embed_size = len(words)+len(prefixes)+len(suffixes)
-            self.word_dict = { w:i for i,w in enumerate(words) }
-            self.prefix_dict = { w:i for i,w in enumerate(prefixes, len(self.word_dict)) }
-            self.suffix_dict = { w:i for i,w in enumerate(suffixes, len(self.word_dict)+len(self.prefix_dict)) }
-            self.embeddings = self.m.add_lookup_parameters((embed_size, self.ils)) 
-        if option == '4':
-            self.embeddings = self.m.add_lookup_parameters((self.vocabs.size(), self.ils))
-            self.dict = self.vocabs.w2i
-            self.builder = dy.LSTMBuilder(1, 50, self.ils, self.m)
-            lstm = self.builder.initial_state()
-            chars = set([c for w in self.vocabs.words for c in w])
-            self.char_dict = { c:i for i,c in enumerate(chars) }
-            self.char_embeddings = self.m.add_lookup_parameters((len(chars),50))
-            self.W = self.m.add_parameters((self.ils, 2*self.ils))
-        if option == '5':
-            pass
-
-    def __getitem__(self, word):
-        if self.repr == REPR_WORDS:
-            return self.embeddings[self.dict[word]]
-        if self.repr == REPR_LSTM_OF_CHARS:
-            lstm = self.builder.initial_state()
-            outputs = lstm.transduce([self.embeddings[self.dict[c]] for c in word])
-            return outputs[-1]
-        if self.repr == REPR_PREFIX_SUFFIX:
-            word_embed = pre_embed = suf_embed = None
-            if word in self.word_dict:
-                word_embed = self.embeddings[self.word_dict[word]]
-            if len(word) <= 3:
-                return word_embed
-            pre = word[:3]
-            suf = word[-3:]
-            if pre in self.prefix_dict:
-                pre_embed = self.embeddings[self.prefix_dict[word[:3]]]
-            if suf in self.suffix_dict:
-                suf_embed = self.embeddings[self.suffix_dict[word[-3:]]]
-            new_embed = word_embed+pre_embed+suf_embed
-            return word_embed + pre_embed + suf_embed
-        if self.repr == REPR_WORDS_N_LSTM_OF_CHARS:
-            word_embed = self.embeddings[self.dict[word]]
-            lstm = self.builder.initial_state()
-            outputs = lstm.transduce([self.char_embeddings[self.char_dict[c]] for c in word])
-            word_n_char_embed = dy.concatenate([word_embed,outputs[-1]])
-            return self.W * word_n_char_embed
-            
-def read(fname, test=False):
-    sent = []
-    for line in open(fname):
-        line = line.strip().split()
-        if not line:
-            if sent: yield sent
-            sent = []
-        else:
-            if test:    # Test
-                w = line
-                sent.append(w)
-            else:       # Training
-                w,p = line
-                sent.append((w,p))
-
-def build_tagging_graph(words, real_tag, L1_builders, L2_builders, E):
-    dy.renew_cg()
-    L1_f_init, L1_b_init = [b1.initial_state() for b1 in L1_builders]
-
-    word_embeddings = [E[w] for w in words]
-    
-    #if add_noise: word_embeddings = [dy.noise(we,0.1) for we in word_embeddings]
-    L1_forward_sequences = L1_f_init.transduce(word_embeddings)
-    L1_backwards_sequences = L1_b_init.transduce(reversed(word_embeddings))
-    
-    L2_f_init, L2_b_init = [b2.initial_state() for b2 in L2_builders]
-
-    b_vectors = [dy.concatenate([L1_forward_output, L1_backwards_output]) for L1_forward_output, L1_backwards_output in zip(L1_forward_sequences, reversed(L1_backwards_sequences))] #L1_backwards_sequences)]
-
-    L2_forward_sequences = L2_f_init.transduce(b_vectors)
-    L2_backwards_sequences = L2_b_init.transduce(reversed(b_vectors))
-
-    b_tag_vectors = [dy.concatenate([L2_forward_output, L2_backwards_output])
-                 for L2_forward_output, L2_backwards_output
-                 in zip(L2_forward_sequences, reversed(L2_backwards_sequences))]
-
-    Net_O = Network_output
-    b_tag_vector = dy.concatenate([L2_forward_sequences[-1],L2_backwards_sequences[0]])
-
-    prediction = dy.softmax(Net_O*b_tag_vector)
-    err = dy.pickneglogsoftmax(prediction, real_tag)
-
-    return np.argmax(prediction), err
-
-def tag_sentence(sentence, L1_builders, L2_builders, test=False):
-    dy.renew_cg()
-    L1_f_init, L1_b_init = [b1.initial_state() for b1 in L1_builders]
-
-    if not test:
-        word_embeddings = [E[word] for word, tag in sentence]
-    else:
-        words = [w[0] if w[0] in vocab_words.words else '_UNK_' for w in sentence]
-        word_embeddings = [E[word] for word in words]
-
-    L1_forward_sequences = L1_f_init.transduce(word_embeddings)
-    L1_backwards_sequences = L1_b_init.transduce(reversed(word_embeddings))
-
-    L2_f_init, L2_b_init = [b2.initial_state() for b2 in L2_builders]
-
-    b_vectors = [dy.concatenate([L1_forward_output, L1_backwards_output])
-                 for L1_forward_output, L1_backwards_output
-                 in zip(L1_forward_sequences, reversed(L1_backwards_sequences))]
-
-    L2_forward_sequences = L2_f_init.transduce(b_vectors)
-    L2_backwards_sequences = L2_b_init.transduce(reversed(b_vectors))
-
-    b_tag_vectors = [dy.concatenate([L2_forward_output, L2_backwards_output])
-                 for L2_forward_output, L2_backwards_output
-                 in zip(L2_forward_sequences, reversed(L2_backwards_sequences))]
-
-    Net_O = Network_output.expr()
-
-    tags=[]
-    if not test:
-        for b_tag_vector, (word,tag) in zip(b_tag_vectors, sentence):
-            out = dy.softmax(Net_O*b_tag_vector)
-            chosen = np.argmax(out.npvalue())
-            tags.append(chosen)
-    else:
-        for b_tag_vector in b_tag_vectors:
-            out = dy.softmax(Net_O*b_tag_vector)
-            chosen = np.argmax(out.npvalue())
-            tags.append(vocab_tags.i2w[chosen])
-    return tags
-
-def test_dev(dev_set, sentences_tagged):
-    good = bad = 0.0
-    for sentence in dev_set:
-        tags = tag_sentence(sentence, L1_builders, L2_builders)
-        labels = [t for w, t in sentence]
-        for go, gu in zip(labels, tags):
-            if go == gu:
-                good += 1
-            else:
-                bad += 1
-    dev_acc = good / (good + bad)
-    print 'Epoch:', epoch, 'Dev set accuracy: %.5f' % dev_acc, 'Total Sentences tagged:', sentences_tagged
-    return dev_acc
-
-def read_lines(fname):
-    for line in codecs.open(fname, encoding="utf8"):
-        sent_id, sent = line.strip().split("\t")
-        sent = sent.replace("-LRB-","(")
-        sent = sent.replace("-RRB-",")")
-        yield sent_id, sent
+            sent = line.split("(")[1][:-1]
+            sent = sent.replace("-LRB-","(")
+            sent = sent.replace("-RRB-",")")
+            yield sent_id, sent
 
 # changes the sentence representation
 def representation(sentence_set,option=None):
     if option == 'NER':
-        return [[w.ent_type if w.ent_type_ != '' else 'O' for w in s] for s in sentence_set]
+        return [[w.ent_type_ if w.ent_type_ != '' else 'O' for w in s] for s in sentence_set]
     elif option == 'POS':
         return [[w.pos_ for w in s] for s in sentence_set]
     elif option == 'DEP':
@@ -213,17 +57,11 @@ def add_tags(train_set, tags_file, true_tag):
     
     return train_set
 
-def create_file(src_file, output_file): #, condition):
-    sentences = open(src_file).read().split('\n')[:-1]
-
-    id_sheli = -1
-    false_sentences = set()
-    for s in sentences:
-        if 'Live_In' in s:
-            false_sentences.add(s.split('(')[1])
-
-    sentences = [s for s in sentences if not s.split('(')[1] in false_sentences]
-
+def create_file(src_file, output_file, condition):
+    sentences = read_lines(src_file, 'annotations' in src_file)
+    
+    sentences = [s[1] for s in sentences if condition(s[1])]
+    print sentences[0]
     f1 = open(output_file, 'w')
     for s in sentences:
         f1.write(s+'\n')
@@ -239,14 +77,31 @@ def compare_files_boolean(file1, file2, condition):
     print 'for file 1, ', sentences1_true/len(sentences1), '% satisfies condition' 
     print 'for file 2, ', sentences2_true/len(sentences2), '% satisfies condition'
 
+def has_person_and_place(sentence):
+    print sentence
+    try:
+        sentence = nlp(sentence)
+    except:
+        pass
+    flag_person = False
+    flag_GPE = False
+    for s in sentence:
+        if s.ent_type_ == u'PERSON':
+            flag_person = True
+        if s.ent_type_ == u'GPE':
+            flag_GPE = True
+    return flag_person and flag_GPE
+
 if __name__ == '__main__':
     nlp = spc.load('en')
+    print "hi"
 
 #    compare_files_boolean('corrects','false', )
     
     train_file, annotation_file, dev_file, dev_annotation = sys.argv[1:]
 
-    create_file(annotation_file, 'false') #, lambda(x): is_false(x))
+    create_file(annotation_file, 'False_person_n_GPE', lambda(x): has_person_and_place(x) and not 'Live_In' in x)
+    create_file(annotation_file, 'True_no_person_n_GPE', lambda(x): (not has_person_and_place(x)) and 'Live_In' in x)
 
     num_correct = len(open('corrects').read().split('\n'))
     num_false = len(open('false').read().split('\n'))
@@ -254,15 +109,21 @@ if __name__ == '__main__':
 
     #initialize train_set
     train_set = []
-    for sent_id, sent_str in read_lines(train_file):
+    for sent_id, sent_str in rb.read_lines(train_file):
         sent = nlp(sent_str)
         train_set.append(sent) #sent_str.encode("ascii")) #TODO correct this stuff
 
+
+
     #choose the way to represent the sentences - by default, just the words
-    train_set = representation(train_set, 'DEP')
 
     train_set = add_tags(train_set, annotation_file, 'Live_In')
 
+    number_of_true = len([s for s in train_set if s[1]])
+    print number_of_true
+    print len([s for s in train_set if (not has_person_and_place(s[0])) and 'Live_In' in s[0].text]), 'false negatives'
+    print len([s for s in train_set if has_person_and_place([0]) and not 'Live_In' in s[0].text]), 'false positives'
+    exit(0)
     print 'Train set size:', len(train_set)
 
     words=[]
