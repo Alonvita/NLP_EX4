@@ -44,18 +44,41 @@ def is_father(person,place):
         father = father.head
     return False
 
-def strip_entity(entity):
+def modify_entity(entity, sentence):
+    brien = False if not 'Brien' in sentence.text else True
     string = ''
     for w in entity:
-        print w.head
         if w == entity.root or w.head == entity.root:
             string+=w.text+' '
+    start_index = entity[0].i
+    end_index = entity[-1].i
+
+    start = ''
+    for w in reversed(sentence[:start_index]):
+        if w.text[0].isupper() and w.ent_type_ != '' and not w.text in string:
+            start = w.text+' '+start
+        else:
+            break
+    string = start+string
+    if brien:
+        print sentence[end_index:]
+    for w in sentence[end_index:]:
+        if brien:
+            print w
+        if w.text[0].isupper() and w.ent_type_ != '' and not w.text in string:
+            string += w.text+' '
+        else:
+            break
+    print string
     return string[:-1]
 
 def relations(sentence):
     relations = []
     places = []
     persons =[]
+    brien = False if not 'Brien' in sentence.text else True
+    if brien:
+        print sentence.ents
     for ne in sentence.ents:
         if ne.root.ent_type_ == 'GPE':
             places.append(ne)
@@ -65,7 +88,7 @@ def relations(sentence):
         for pl in places:
             #rule 1 - the place is a compound of the person's entity
             if pl.root.dep_ == 'compound' and is_father(pe,pl):
-                pe = strip_entity(pe)
+                pe = modify_entity(pe,sentence)
                 print pe,pl
                 relations.append(str(pe)+'\tLive_In\t'+str(pl))
     return relations
@@ -95,7 +118,8 @@ def main(train_file, output_file):
     f1.close()
 
 
-nlp = spc.load('en')
+#nlp = spc.load('en')
+nlp = spc.load('en_core_web_sm')
 
 if __name__ == '__main__':
     if len(sys.argv) != 3:

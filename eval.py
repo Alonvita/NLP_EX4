@@ -4,8 +4,8 @@ epsilon = 0.0000001
 
 def main(gold_file,pred_file):
     print gold_file, pred_file
-    gold_data = [r.split('(')[0][:-1] for r in open(gold_file).readlines()]
-    pred_data = [r.split('(')[0][:-1] for r in open(pred_file).readlines()]
+    gold_data = [r.split('(')[0][:-1].replace('.','') for r in open(gold_file).readlines()]
+    pred_data = [r.split('(')[0][:-1].replace('.','') for r in open(pred_file).readlines()]
     
     print len(gold_data)
     print len(pred_data)
@@ -20,6 +20,7 @@ def main(gold_file,pred_file):
     print [p for p in pred_entities if p not in gold_entities.intersection(pred_entities)]
     print [g for g in gold_entities if 'G. Ernest' in g]
     print [g for g in gold_entities if 'Sirhan' in g]
+    print [g for g in gold_entities if 'Brien' in g]
     prec = len(gold_entities.intersection(pred_entities)) / float(len(pred_entities))
     rec  = len(gold_entities.intersection(pred_entities)) / float(len(gold_entities))
     F1 = prec*rec/(prec+rec + epsilon)
