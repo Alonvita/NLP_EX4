@@ -350,7 +350,7 @@ def compute_feature_key_to_anno_key(anno_by_sent_id, features_by_sent_id):
                     # update found
                     found_f_key = f_key
 
-                    # check if both have passed the threshhold
+                    # check if both have passed the threshold
                     both_passed_threshold = SIM_THRESHOLD < similarity1 and SIM_THRESHOLD < similarity2
                     both_passed_shared_word = \
                         0 < len(set(ner1_from_anno.replace(".", "").split()) & set(
