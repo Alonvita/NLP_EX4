@@ -540,43 +540,43 @@ def get_dicts(filename):
     STRIP = lambda (str): str.strip()
 
 
-a2i = {UNKNOWN: 0, DIRECTIONS[UP]: 1, DIRECTIONS[DOWN]: 2, DIRECTIONS[LEFT]: 3, DIRECTIONS[RIGHT]: 4}  # THIS
-w2i = {UNKNOWN: 0}  # THIS
-t2i = {UNKNOWN: 0, ROOT: 1}
-n2i = {UNKNOWN: 0}
-d2i = {UNKNOWN: 0}  # THIS
+    a2i = {UNKNOWN: 0, DIRECTIONS[UP]: 1, DIRECTIONS[DOWN]: 2, DIRECTIONS[LEFT]: 3, DIRECTIONS[RIGHT]: 4}  # THIS
+    w2i = {UNKNOWN: 0}  # THIS
+    t2i = {UNKNOWN: 0, ROOT: 1}
+    n2i = {UNKNOWN: 0}
+    d2i = {UNKNOWN: 0}  # THIS
 
-f = open(filename, 'r')
+    f = open(filename, 'r')
 
-for line in f:
-    line = STRIP(line)
-    if line.startswith('#'):
-        continue
-    line = SPLIT(line)
+    for line in f:
+        line = STRIP(line)
+        if line.startswith('#'):
+            continue
+        line = SPLIT(line)
 
-    if len(line) == 0:
-        continue
+        if len(line) == 0:
+            continue
 
-    word = line[WORDS_OFFSET]
-    tag = line[TAG_OFFSET]
-    dep = line[DEP_OFFSET]
+        word = line[WORDS_OFFSET]
+        tag = line[TAG_OFFSET]
+        dep = line[DEP_OFFSET]
 
-    if word not in w2i:
-        w2i[word] = len(w2i)
+        if word not in w2i:
+            w2i[word] = len(w2i)
 
-    if tag not in t2i:
-        t2i[tag] = len(t2i)
+        if tag not in t2i:
+            t2i[tag] = len(t2i)
 
-    if dep not in d2i:
-        d2i[dep] = len(d2i)
+        if dep not in d2i:
+            d2i[dep] = len(d2i)
 
-    if MAX_LINE_SIZE < len(line):
-        ner = line[MAX_LINE_SIZE]
-        if ner not in n2i:
-            n2i[ner] = len(n2i)
+        if MAX_LINE_SIZE < len(line):
+            ner = line[MAX_LINE_SIZE]
+            if ner not in n2i:
+                n2i[ner] = len(n2i)
 
-# return a2i, d2i, w2i, t2i, n2i
-return w2i, t2i, n2i, d2i, a2i
+    # return a2i, d2i, w2i, t2i, n2i
+    return w2i, t2i, n2i, d2i, a2i
 
 
 if __name__ == '__main__':
