@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 UNKNOWN = '_UNK_'
 C_PATH = 1
 D_PATH = 2
@@ -38,7 +40,7 @@ NER_INDEX = lambda (ner): ner[-1]
 WORK_FOR = 'Work_For'
 LIVE_IN = 'Live_In'
 
-anno2i = {UNKNOWN: 0, WORK_FOR: 1, LIVE_IN: 2}
+anno2i = defaultdict(lambda: [1., 0.], {LIVE_IN: [0., 1.]})
 
 MODEL_NAME = 'cactus_model'
 DICTS_FP = 'cactus_dicts'
@@ -307,10 +309,6 @@ def read_annotations_file(fp):
 
 
 def compute_feature_key_to_anno_key(anno_by_sent_id, features_by_sent_id):
-    # Number of sentences should be the same
-    # assert len(features_by_sent_id) == len(anno_by_sent_id)
-    sent_ids = set.union(set(features_by_sent_id.keys()), set(anno_by_sent_id.keys()))
-
     # For each annotation, find it's features from the input
     # Note: They are not always the same :-(
     # i.e "United States" in .annotations is "the United States" in .processed
@@ -321,55 +319,66 @@ def compute_feature_key_to_anno_key(anno_by_sent_id, features_by_sent_id):
     removed_anno_count = 0
     added_anno_count = 0
 
-    for sent_id in sent_ids:
-        for anno_key in anno_by_sent_id.get(sent_id, {}):
-            anno_ner1, anno_ner2 = anno_key
+    # for all of the ID's in a set created by the IDS from both dicts
+    for id in set.union(set(features_by_sent_id.keys()), set(anno_by_sent_id.keys())):
+        # for each of the annotation keys
+        for anno_key in anno_by_sent_id.get(id, {}):
+            # extract the ners
+            ner1_from_anno = anno_key[0]
+            ner2_from_anno = anno_key[1]
+
+            # local variables
             found_f_key = None
             f_key_score = 0.0
             both_passed_threshold = False
             both_passed_shared_word = False
 
-            for f_key in features_by_sent_id.get(sent_id, {}):
-                f_ner1, f_ner2 = f_key
-                ner1_sim = SequenceMatcher(None, anno_ner1, f_ner1).ratio()
-                ner2_sim = SequenceMatcher(None, anno_ner2, f_ner2).ratio()
-                if f_key_score < ner1_sim + ner2_sim:
-                    f_key_score = ner1_sim + ner2_sim
+            # for each of the feature keys
+            for f_key in features_by_sent_id.get(id, {}):
+                # extract the ners
+                ner1_from_feat = f_key[0]
+                ner2_from_feat = f_key[1]
+
+                # check similarity for the ners
+                similarity1 = SequenceMatcher(None, ner1_from_anno, ner1_from_feat).ratio()
+                similarity2 = SequenceMatcher(None, ner2_from_anno, ner2_from_feat).ratio()
+
+                # if the current f_key_score is smaller than the sum of the similarities
+                if f_key_score < similarity1 + similarity2:
+                    # take the similarities
+                    f_key_score = similarity2 + similarity2
+                    # update found
                     found_f_key = f_key
 
-                    both_passed_threshold = SIM_THRESHOLD < SIM_THRESHOLD and ner2_sim < ner1_sim
+                    # check if both have passed the threshhold
+                    both_passed_threshold = SIM_THRESHOLD < similarity1 and SIM_THRESHOLD < similarity2
                     both_passed_shared_word = \
-                        len(set(anno_ner1.replace(".", "").split()) & set(f_ner1.replace(".", "").split())) > 0 and \
-                        len(set(anno_ner2.replace(".", "").split()) & set(f_ner2.replace(".", "").split())) > 0
+                        0 < len(set(ner1_from_anno.replace(".", "").split()) & set(
+                            ner1_from_feat.replace(".", "").split())) and \
+                        0 < len(
+                            set(ner2_from_anno.replace(".", "").split()) & set(ner2_from_feat.replace(".", "").split()))
 
-            """ 
-                Uncomment to see warnings of low-percent matching. I chose to remove those without at least one shared word
-                I observed that if a NER exists in the possibilities it would choose it correctly, if it doesn't it chooses a bad one
-                But both_passed_shared_word would be False on those occasions
+            # if the ID was not recognized yet -> initialize a new dict for it's values with the ID as a key
+            if id not in feature_key_to_anno_key:
+                feature_key_to_anno_key[id] = {}
 
-            if not both_passed_threshold:
-                print("WARNING: match for annotation key didn't pass threshold")
-                print("Sentence id: "+sent_id)
-                print("Selected match: "+str(anno_key)+" -> "+str(found_f_key))
-                print("Possible matches: "+str(set([a for a,b in features_by_sent_id[sent_id].keys()])))
-                if not both_passed_shared_word:
-                    print("WARNING: extra low rating. Consider filtering out")
-                print("\n")
-            """
-            if sent_id not in feature_key_to_anno_key:
-                feature_key_to_anno_key[sent_id] = {}
-
+            # in case both have passed the shared word between them
             if both_passed_shared_word:
-                if found_f_key in feature_key_to_anno_key[sent_id]:
-                    print("Warning! double annotation for sentence: " + sent_id + " skipping.\n")
-                else:
-                    feature_key_to_anno_key[sent_id][found_f_key] = anno_key
-                    added_anno_count += 1
-            else:
-                print("Sentence id: " + sent_id)
-                print("Removed match: " + str(anno_key) + " -> " + str(found_f_key))
-                print("")
-                removed_anno_count += 1
+                # id already recognized
+                if found_f_key in feature_key_to_anno_key[id]:
+                    print("Warning! double annotation for sentence: " + id + " skipping.\n")
+                    continue
+
+                # in case it was not recognized
+                feature_key_to_anno_key[id][found_f_key] = anno_key
+                added_anno_count += 1
+                continue
+
+            # not passed the shared word
+            print("Sentence id: " + id)
+            print("Removed match: " + str(anno_key) + " -> " + str(found_f_key))
+            print("")
+            removed_anno_count += 1
 
     assert added_anno_count == sum([len(feature_key_to_anno_key[k]) for k in feature_key_to_anno_key])
     print("Found: {} annotations. Removed (because could not find match): {}"
@@ -484,64 +493,6 @@ def create_predictions_dict(features_by_sent_id, network, i2anno, dicts):
     return predictions_dict
 
 
-def get_dicts(fp):
-    """
-    get_dicts(fp).
-
-    :param fp: file path
-    :return: the dictionaries.
-    """
-    """ Begin: LOCAL FUNCTION DEFAULTS AND LAMBDA EXPRESSIONS """
-    WORDS_OFFSET = 1
-    TAG_OFFSET = 3
-    DEP_OFFSET = 6
-
-    MAX_LINE_SIZE = 8
-
-    SPLIT = lambda (str): str.split()
-    STRIP = lambda (str): str.strip()
-
-    """ End: LOCAL FUNCTION DEFAULTS AND LAMBDA EXPRESSIONS """
-
-    a2i = {UNKNOWN: 0, DIRECTIONS[UP]: 1, DIRECTIONS[DOWN]: 2, DIRECTIONS[LEFT]: 3, DIRECTIONS[RIGHT]: 4}  # THIS
-    w2i = {UNKNOWN: 0}  # THIS
-    t2i = {UNKNOWN: 0, ROOT: 1}
-    n2i = {UNKNOWN: 0}
-    d2i = {UNKNOWN: 0}  # THIS
-
-    f = open(fp, 'r')
-
-    for line in f:
-        line = STRIP(line)
-        if line.startswith('#'):
-            continue
-        line = SPLIT(line)
-
-        if len(line) == 0:
-            continue
-
-        word = line[WORDS_OFFSET]
-        tag = line[TAG_OFFSET]
-        dep = line[DEP_OFFSET]
-
-        if word not in w2i:
-            w2i[word] = len(w2i)
-
-        if tag not in t2i:
-            t2i[tag] = len(t2i)
-
-        if dep not in d2i:
-            d2i[dep] = len(d2i)
-
-        if MAX_LINE_SIZE < len(line):
-            ner = line[MAX_LINE_SIZE]
-            if ner not in n2i:
-                n2i[ner] = len(n2i)
-
-        # return a2i, d2i, w2i, t2i, n2i
-    return w2i, t2i, n2i, d2i, a2i
-
-
 def main(src):
     import os.path
     if not os.path.isfile(MODEL_NAME):
@@ -578,5 +529,55 @@ def main(src):
                 out_file.write('%s\t%s\t%s\t%s\n' % (sent_id, ners[0], rel, ners[1]))
 
 
+def get_dicts(filename):
+    WORDS_OFFSET = 1
+    TAG_OFFSET = 3
+    DEP_OFFSET = 6
+
+    MAX_LINE_SIZE = 8
+
+    SPLIT = lambda (str): str.split()
+    STRIP = lambda (str): str.strip()
+
+
+a2i = {UNKNOWN: 0, DIRECTIONS[UP]: 1, DIRECTIONS[DOWN]: 2, DIRECTIONS[LEFT]: 3, DIRECTIONS[RIGHT]: 4}  # THIS
+w2i = {UNKNOWN: 0}  # THIS
+t2i = {UNKNOWN: 0, ROOT: 1}
+n2i = {UNKNOWN: 0}
+d2i = {UNKNOWN: 0}  # THIS
+
+f = open(filename, 'r')
+
+for line in f:
+    line = STRIP(line)
+    if line.startswith('#'):
+        continue
+    line = SPLIT(line)
+
+    if len(line) == 0:
+        continue
+
+    word = line[WORDS_OFFSET]
+    tag = line[TAG_OFFSET]
+    dep = line[DEP_OFFSET]
+
+    if word not in w2i:
+        w2i[word] = len(w2i)
+
+    if tag not in t2i:
+        t2i[tag] = len(t2i)
+
+    if dep not in d2i:
+        d2i[dep] = len(d2i)
+
+    if MAX_LINE_SIZE < len(line):
+        ner = line[MAX_LINE_SIZE]
+        if ner not in n2i:
+            n2i[ner] = len(n2i)
+
+# return a2i, d2i, w2i, t2i, n2i
+return w2i, t2i, n2i, d2i, a2i
+
+
 if __name__ == '__main__':
-    main('Corpus.DEV.processed')
+    main('../data/Corpus.DEV.processed')
