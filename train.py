@@ -3,6 +3,7 @@ import spacy as spc
 from collections import Counter, defaultdict
 import random
 import eval as ev
+from extract import *
 import numpy as np
 import dynet as dy
 import codecs 
@@ -10,6 +11,8 @@ import util
 
 LENGTH_OF_NER = 4
 EPOCHS = 15
+
+MODEL_NAME = 'SENE_model'
 
 class RE_network(object):
     def __init__(self,words_num,arrows_num,dep_num,dropout,embed_dim,lstm_dim):
@@ -108,48 +111,143 @@ def main(train_file, output_file):
 nlp = spc.load('en_core_web_sm')
 processed = defaultdict(lambda:None, { })
 
-def train(trainX,trainY,devX,devY):
-    if not trainX or not trainY or not devX or not devY:
-        trainX = devX =  [[[1,2,3,4],[5,6,7],[5,6,8]]]
-        trainY = devY = [[1.,0.]]
+def toInputs(id2features,id2anno,dicts):
+    X = []
+    Y = []
+
+    feat2anno = compute_feature_key_to_anno_key(id2anno,id2features)
+    ids = id2features.keys()
+    for s_id in ids:
+        for pair,features in id2features[s_id].items():
+            X.append(feat2vec(features,dicts))
+
+            if pair not in feat2anno[s_id]:
+                Y.append(anno2i[UNKNOWN])
+                continue
+
+            anno_key = feat2anno[s_id][pair]
+            if anno_key not in id2anno[s_id]:
+                Y.append(anno2i[UNKNOWN])
+                continue
+
+            anno = id2anno[s_id][anno_key]
+            if anno not in anno2i:
+                Y.append(anno2i[UNKNOWN])
+                continue
+
+            # annontion is allowed, and we know its type.
+            Y.append(anno2i[anno])
+
+    print sum([y for y in Y if y==1])
+    exit(0)
+    return X,Y
+
+def accuracy(gold,pred):
+##    from collections import Counter
+##    table = {}
+##    good = bad = 0.0
+##    for pred, gold in zip(pred, gold):
+##        if gold not in table:
+##            table[gold] = Counter()
+##        table[gold].update([pred])
+##        if gold == pred:
+##            good += 1
+##        else:
+##            bad += 1
+##
+##    acc = good / (good + bad)
+##    recall = {}
+##    prec = {}
+##    f1 = {}
+##    # move onto computing recall and precision
+##    for gold in table:
+##        tp = float(table[gold][gold])
+##        tpfn = sum(table[gold].values())
+##        recall[gold] = tp / tpfn
+##
+##        sm = 0.0
+##        for r_gold in table:
+##            sm += table[r_gold][gold]
+##        if sm > 0:
+##            sm = tp / sm
+##        prec[gold] = sm
+##
+##        denom = (recall[gold] + prec[gold])
+##        if denom != 0:
+##            f1[gold] = (2.0 * recall[gold] * prec[gold]) / denom
+##        else:
+##            f1[gold] = 0.0
+##
+##    return acc, recall, prec, f1
+    
+    epsilon = 0.00000001
+    good = total = true = pred_true = correct_pred = epsilon
+    for g,p in zip(gold,pred):
+        if g==p:
+            good+=1
+        total+=1
+
+        if g==1:
+            true+=1
+        if p==1:
+            pred_true+=1
+        if g==1 and p==1:
+            correct_pred += 1
+
+    print "accuracy is", good/total
+    print "precision is", correct_pred/pred_true
+    print "recall is", correct_pred/true
+
+def train(train_file,train_anno_file,dev_file,dev_anno_file):
+
+    #train_data
+    dicts = get_dicts(train_file)
+    id2features = read_processed_file(train_file)
+    id2anno = read_annotations_file(train_anno_file)
+    trainX,trainY = toInputs(id2features,id2anno,dicts)
+    
+    id2features = read_processed_file(dev_file)
+    id2anno = read_annotations_file(dev_anno_file)
+    devX,devY = toInputs(id2features,id2anno,dicts)
 
     train_data = zip(trainX,trainY)
-    dev_data = zip(dev_X,dev_Y)
-        
+    dev_data = zip(devX,devY)
+
+    f1 = 0.
     for e in xrange(EPOCHS):
         random.shuffle(train_data)
         train_output=[]
-        print train_data
         for inp_vector, tag in train_data:
-            print inp_vector
             output = model(inp_vector)
 
             train_output.append(np.argmax(output.npvalue()))
 
-            true_result = dy.vecInput(2)
-            true_result.set(tag)
-            loss = dy.binary_log_loss(output,true_result) #-dy.log(dy.pick(output, tag))
+##            true_result = dy.vecInput(2)
+##            true_result.set(tag)
+            loss = -dy.log(dy.pick(output, tag)) #dy.binary_log_loss(output,true_result) #
             loss.backward()
             trainer.update()
-        ev.accuracy(train_output,[y.index(1.) for y in trainY])
 
+        print accuracy(trainY,train_output) #[y.index(1.) for y in trainY],train_output)
+        exit(0)
         dev_output = []
         for inp_vector, tag in dev_data:
-            print inp_vector
             output = model(inp_vector)
 
             dev_output.append(np.argmax(output.npvalue()))
-        ev.accuracy(dev_output,[y.index(1.) for y in devY])
+        F1 = accuracy(devY,dev_output)
+
+        if F1 > f1:
+            f1 = F1
+            model.model.save(MODEL_NAME)
 
 if __name__ == '__main__':
-    model = RE_network(20,20,20,1,0.3,12)
+    w2i, t2i, n2i, d2i, a2i = get_dicts(sys.argv[1])
+    print len(w2i),len(a2i),len(d2i)
+    model = RE_network(len(w2i),len(a2i),len(d2i),0.3,1,12)
     trainer = dy.AdamTrainer(model.model)
 
-    #TODO add train_data of a sort
-    #train_data = sheker
-
-    train(None,None,None,None)
-
-    if len(sys.argv) != 3:
+    if len(sys.argv) == 5:
+        train(sys.argv[1],sys.argv[2],sys.argv[3],sys.argv[4])
         print "proper usage: python extract.py file1 file2"
         exit(0)
