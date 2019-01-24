@@ -10,20 +10,22 @@ def main(gold_file,pred_file):
     print len(gold_data)
     print len(pred_data)
 
-    gold_entities = set(gold_data)
-    pred_entities = set(pred_data)
+    accuracy(gold_data,pred_data)
+
+def accuracy(gold,pred):
+    print gold
+    print pred
+    gold_entities = set(gold)
+    pred_entities = set(pred)
 
 
     print len(gold_entities), "real true"
     print len(pred_entities), "our truth"
     print len(gold_entities.intersection(pred_entities)), "when truths collide"
     print [p for p in pred_entities if p not in gold_entities.intersection(pred_entities)]
-    print [g for g in gold_entities if 'G. Ernest' in g]
-    print [g for g in gold_entities if 'Sirhan' in g]
-    print [g for g in gold_entities if 'Brien' in g]
     prec = len(gold_entities.intersection(pred_entities)) / float(len(pred_entities))
     rec  = len(gold_entities.intersection(pred_entities)) / float(len(gold_entities))
-    F1 = prec*rec/(prec+rec + epsilon)
+    F1 = 2*prec*rec/(prec+rec + epsilon)
     print "Prec:%s Rec:%s F1:%s" % (prec, rec, F1)
 
 
