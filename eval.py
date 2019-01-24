@@ -13,8 +13,6 @@ def main(gold_file,pred_file):
     accuracy(gold_data,pred_data)
 
 def accuracy(gold,pred):
-    print gold
-    print pred
     gold_entities = set(gold)
     pred_entities = set(pred)
 
@@ -27,6 +25,8 @@ def accuracy(gold,pred):
     rec  = len(gold_entities.intersection(pred_entities)) / float(len(gold_entities))
     F1 = 2*prec*rec/(prec+rec + epsilon)
     print "Prec:%s Rec:%s F1:%s" % (prec, rec, F1)
+
+    return F1
 
 
 if __name__=='__main__':
