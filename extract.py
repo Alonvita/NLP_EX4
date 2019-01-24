@@ -40,7 +40,7 @@ NER_INDEX = lambda (ner): ner[-1]
 WORK_FOR = 'Work_For'
 LIVE_IN = 'Live_In'
 
-anno2i = defaultdict(lambda: [1., 0.], {LIVE_IN: [0., 1.]})
+anno2i = {UNKNOWN: 0, WORK_FOR: 1, LIVE_IN: 2}
 
 MODEL_NAME = 'cactus_model'
 DICTS_FP = 'cactus_dicts'
@@ -289,6 +289,8 @@ def read_annotations_file(fp):
 
     relation_by_sent_id = {}
 
+    count = 0
+
     with open(fp) as anootations_file:
         for line in anootations_file:
             line = line.strip()
@@ -304,7 +306,11 @@ def read_annotations_file(fp):
                 relation_by_sent_id[id] = {}
 
             # add the ners as a tuple to the id
+            if relation is "live_in":
+                count += 1
             relation_by_sent_id[id][(ner1, ner2)] = relation
+
+    print "COUNT IS: " + str(count)
     return relation_by_sent_id
 
 
@@ -350,7 +356,7 @@ def compute_feature_key_to_anno_key(anno_by_sent_id, features_by_sent_id):
                     # update found
                     found_f_key = f_key
 
-                    # check if both have passed the threshold
+                    # check if both have passed the threshhold
                     both_passed_threshold = SIM_THRESHOLD < similarity1 and SIM_THRESHOLD < similarity2
                     both_passed_shared_word = \
                         0 < len(set(ner1_from_anno.replace(".", "").split()) & set(
@@ -359,30 +365,24 @@ def compute_feature_key_to_anno_key(anno_by_sent_id, features_by_sent_id):
                             set(ner2_from_anno.replace(".", "").split()) & set(ner2_from_feat.replace(".", "").split()))
 
             # if the ID was not recognized yet -> initialize a new dict for it's values with the ID as a key
-            if id not in feature_key_to_anno_key:
-                feature_key_to_anno_key[id] = {}
+            if sent_id not in feature_key_to_anno_key:
+                feature_key_to_anno_key[sent_id] = {}
 
-            # in case both have passed the shared word between them
             if both_passed_shared_word:
-                # id already recognized
-                if found_f_key in feature_key_to_anno_key[id]:
-                    print("Warning! double annotation for sentence: " + id + " skipping.\n")
-                    continue
-
-                # in case it was not recognized
-                feature_key_to_anno_key[id][found_f_key] = anno_key
-                added_anno_count += 1
-                continue
-
-            # not passed the shared word
-            print("Sentence id: " + id)
-            print("Removed match: " + str(anno_key) + " -> " + str(found_f_key))
-            print("")
-            removed_anno_count += 1
+                if found_f_key in feature_key_to_anno_key[sent_id]:
+                    print("Warning! double annotation for sentence: " + sent_id + " skipping.\n")
+                else:
+                    feature_key_to_anno_key[sent_id][found_f_key] = anno_key
+                    added_anno_count += 1
+            else:
+                print("Sentence id: " + sent_id)
+                print("Removed match: " + str(anno_key) + " -> " + str(found_f_key))
+                print("")
+                removed_anno_count += 1
 
     assert added_anno_count == sum([len(feature_key_to_anno_key[k]) for k in feature_key_to_anno_key])
-    print("Found: {} annotations. Removed (because could not find match): {}"
-          .format(added_anno_count, removed_anno_count))
+    print("Found: {} annotations. Removed (because could not find match): {}".format(added_anno_count,
+                                                                                     removed_anno_count))
     return feature_key_to_anno_key
 
 
@@ -448,20 +448,21 @@ def feat2vec(features, dicts):
     cpath = []
     dpath = []
 
-    def create_path(outpath, path, type):
-        if path is not None:
-            path1 = STRIPSPLIT(path[0])
-            path2 = STRIPSPLIT(path[1])
 
-            for path in [path1, path2]:
-                for step in path:
-                    if type == C_PATH:
-                        cons_tag, cons_dir = step.rsplit('-', 1)
-                        outpath.extend([tag_to_index.get(cons_tag, 0), annotation_to_index[cons_dir]])
-                    else:
-                        dep_word, dep_dir, dep = step.rsplit('-', 2)
-                        outpath.extend(
-                            [word_to_index.get(dep_word, 0), annotation_to_index[dep_dir], dep_to_index.get(dep, 0)])
+def create_path(outpath, path, type):
+    if path is not None:
+        path1 = STRIPSPLIT(path[0])
+        path2 = STRIPSPLIT(path[1])
+
+        for path in [path1, path2]:
+            for step in path:
+                if type == C_PATH:
+                    cons_tag, cons_dir = step.rsplit('-', 1)
+                    outpath.extend([tag_to_index.get(cons_tag, 0), annotation_to_index[cons_dir]])
+                else:
+                    dep_word, dep_dir, dep = step.rsplit('-', 2)
+                    outpath.extend(
+                        [word_to_index.get(dep_word, 0), annotation_to_index[dep_dir], dep_to_index.get(dep, 0)])
 
     create_path(cpath, constituent_path, C_PATH)
     create_path(dpath, dep_path, D_PATH)
@@ -539,12 +540,11 @@ def get_dicts(filename):
     SPLIT = lambda (str): str.split()
     STRIP = lambda (str): str.strip()
 
-
-    a2i = {UNKNOWN: 0, DIRECTIONS[UP]: 1, DIRECTIONS[DOWN]: 2, DIRECTIONS[LEFT]: 3, DIRECTIONS[RIGHT]: 4}  # THIS
-    w2i = {UNKNOWN: 0}  # THIS
+    a2i = {UNKNOWN: 0, DIRECTIONS[UP]: 1, DIRECTIONS[DOWN]: 2, DIRECTIONS[LEFT]: 3, DIRECTIONS[RIGHT]: 4}
+    w2i = {UNKNOWN: 0}
     t2i = {UNKNOWN: 0, ROOT: 1}
     n2i = {UNKNOWN: 0}
-    d2i = {UNKNOWN: 0}  # THIS
+    d2i = {UNKNOWN: 0}
 
     f = open(filename, 'r')
 
@@ -575,8 +575,7 @@ def get_dicts(filename):
             if ner not in n2i:
                 n2i[ner] = len(n2i)
 
-    # return a2i, d2i, w2i, t2i, n2i
-    return w2i, t2i, n2i, d2i, a2i
+    return a2i, d2i, w2i, t2i, n2i
 
 
 if __name__ == '__main__':
