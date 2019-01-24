@@ -7,6 +7,7 @@ D_PATH = 2
 """ Begin: DIRECTIONS DICT """
 
 UP = "UP"
+
 DOWN = "DOWN"
 LEFT = "LEFT"
 RIGHT = "RIGHT"
